@@ -13,10 +13,17 @@ const cors = require("cors");
 
 const app = express();
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "https://secureauth-frontend-jdj9.onrender.com",
-  credentials: true
-}));
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+app.use(
+  cors({
+    origin:[
+      "http://localhost:5173",
+      "https://secureauth-frontend-jdj9.onrender.com"],
+    credentials: true
+  })
+);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -30,44 +37,52 @@ const loginLimiter = rateLimit({
 });
 
 app.get("/", (req, res) => {
-    res.send("SecureAuth backend is running");
-})
-
+  res.send("SecureAuth backend is running");
+});
 
 app.post("/register", async (req, res) => {
   const { username, email, password } = req.body;
 
-  if(!username || !email || !password){
+  if (!username || !email || !password) {
     return res.status(400).json({
-      message: "All field are required"
+      message: "All fields are required"
     });
   }
 
-  if(password.length < 8){
+  if (password.length < 8) {
     return res.status(400).json({
       message: "Password must be at least 8 characters"
     });
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-  const sql = `
-    INSERT INTO users (username, email, password_hash)
-    VALUES (?, ?, ?)
-  `;
+    const sql = `
+      INSERT INTO users (username, email, password_hash)
+      VALUES (?, ?, ?)
+    `;
 
-  db.query(sql, [username, email, hashedPassword], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({
-        message: "Registration failed"
+    db.query(sql, [username, email, hashedPassword], (err) => {
+      if (err) {
+        console.error("Registration database error:", err);
+
+        return res.status(500).json({
+          message: "Registration failed"
+        });
+      }
+
+      return res.status(201).json({
+        message: "User registered successfully"
       });
-    }
-
-    res.status(201).json({
-      message: "User registered successfully"
     });
-  });
+  } catch (error) {
+    console.error("Registration error:", error);
+
+    return res.status(500).json({
+      message: "Registration failed"
+    });
+  }
 });
 
 app.post("/login", loginLimiter, (req, res) => {
@@ -83,7 +98,8 @@ app.post("/login", loginLimiter, (req, res) => {
 
   db.query(sql, [email], async (err, results) => {
     if (err) {
-      console.error(err);
+      console.error("Login database error:", err);
+
       return res.status(500).json({
         message: "Login failed"
       });
@@ -97,37 +113,49 @@ app.post("/login", loginLimiter, (req, res) => {
 
     const user = results[0];
 
-    const passwordMatch = await bcrypt.compare(
-      password,
-      user.password_hash
-    );
+    try {
+      const passwordMatch = await bcrypt.compare(
+        password,
+        user.password_hash
+      );
 
-    if (!passwordMatch) {
-      return res.status(401).json({
-        message: "Invalid email or password"
+      if (!passwordMatch) {
+        return res.status(401).json({
+          message: "Invalid email or password"
+        });
+      }
+
+      const token = jwt.sign(
+        {
+          id: user.id,
+          email: user.email
+        },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "1h"
+        }
+      );
+
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none",
+        path: "/",
+        maxAge: 60 * 60 * 1000
+      });
+
+      return res.json({
+        message: "Login successful"
+      });
+    } catch (error) {
+      console.error("Authentication error:", error);
+
+      return res.status(500).json({
+        message: "Login failed"
       });
     }
-
-    const token = jwt.sign(
-      { id: user.id, email: user.email },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
-
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      path: "/",
-      maxAge: 60 * 60 * 1000
-    });
-
-    res.json({
-      message: "Login successful"
-    });
   });
 });
-
 
 app.get("/dashboard", (req, res) => {
   const token = req.cookies.token;
@@ -141,7 +169,7 @@ app.get("/dashboard", (req, res) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    res.json({
+    return res.json({
       message: "Welcome to SecureAuth Dashboard",
       user: decoded
     });
@@ -152,15 +180,15 @@ app.get("/dashboard", (req, res) => {
   }
 });
 
-
 app.post("/logout", (req, res) => {
-  res.clearCookie("token");
+  res.clearCookie("token", {
+    path: "/"
+  });
 
-  res.json({
+  return res.json({
     message: "Logged out successfully"
   });
 });
-
 
 const PORT = process.env.PORT || 5000;
 

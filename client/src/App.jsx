@@ -15,6 +15,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const API_URL = "https://secureauth-backend-28g2.onrender.com";
+
   const getPasswordStrength = () => {
     if (password.length === 0) {
       return "";
@@ -46,12 +47,22 @@ function App() {
 
       if (response.ok) {
         setDashboardData(result);
-      } else {
-        setMessage(result.message);
-        setIsLoggedIn(false);
+        return true;
       }
+
+      setMessage(result.message);
+      setIsLoggedIn(false);
+      setDashboardData(null);
+
+      return false;
     } catch (error) {
       console.error("Dashboard request failed:", error);
+
+      setMessage("Unable to load dashboard. Please try again.");
+      setIsLoggedIn(false);
+      setDashboardData(null);
+
+      return false;
     }
   };
 
@@ -81,8 +92,15 @@ function App() {
       : `${API_URL}/register`;
 
     const data = isLogin
-      ? { email, password }
-      : { username, email, password };
+      ? {
+          email: email.trim(),
+          password
+        }
+      : {
+          username: username.trim(),
+          email: email.trim(),
+          password
+        };
 
     try {
       const response = await fetch(endpoint, {
@@ -96,19 +114,27 @@ function App() {
 
       const result = await response.json();
 
+      if (!response.ok) {
+        setMessage(result.message);
+        return;
+      }
+
+      if (isLogin) {
+        const dashboardLoaded = await fetchDashboard();
+
+        if (dashboardLoaded) {
+          setMessage("");
+          setIsLoggedIn(true);
+        }
+
+        return;
+      }
+
       setMessage(result.message);
-
-      if (isLogin && response.ok) {
-        setIsLoggedIn(true);
-        fetchDashboard();
-      }
-
-      if (!isLogin && response.ok) {
-        setUsername("");
-        setEmail("");
-        setPassword("");
-        setIsLogin(true);
-      }
+      setUsername("");
+      setEmail("");
+      setPassword("");
+      setIsLogin(true);
     } catch (error) {
       console.error("Request failed:", error);
       setMessage("Something went wrong. Please try again.");
@@ -133,6 +159,7 @@ function App() {
       setPassword("");
     } catch (error) {
       console.error("Logout failed:", error);
+      setMessage("Logout failed. Please try again.");
     }
   };
 
@@ -176,6 +203,7 @@ function App() {
 
                 <div>
                   <span className="card-label">USER ID</span>
+
                   <h3>
                     {dashboardData?.user?.id || "Authenticated User"}
                   </h3>
@@ -187,6 +215,7 @@ function App() {
 
                 <div>
                   <span className="card-label">EMAIL</span>
+
                   <h3>
                     {dashboardData?.user?.email || "Verified account"}
                   </h3>
@@ -267,6 +296,7 @@ function App() {
             <div className="security-points">
               <div>
                 <span>✓</span>
+
                 <p>
                   <strong>Protected passwords</strong>
                   <small>Secure password hashing with bcrypt</small>
@@ -275,6 +305,7 @@ function App() {
 
               <div>
                 <span>✓</span>
+
                 <p>
                   <strong>Secure sessions</strong>
                   <small>JWT authentication with HttpOnly cookies</small>
@@ -283,6 +314,7 @@ function App() {
 
               <div>
                 <span>✓</span>
+
                 <p>
                   <strong>Attack protection</strong>
                   <small>Validation, rate limiting and SQLi prevention</small>
