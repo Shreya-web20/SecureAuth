@@ -1,0 +1,168 @@
+const express = require("express");
+
+require("dotenv").config();
+const db = require("./db");
+
+const bcrypt = require("bcrypt");
+
+const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
+
+const rateLimit = require("express-rate-limit");
+const cors = require("cors");
+
+const app = express();
+
+app.use(cors({
+  origin: "http://localhost:5173",
+  credentials: true
+}));
+
+app.use(express.json());
+app.use(cookieParser());
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    message: "Too many login attempts. Please try again later."
+  }
+});
+
+const PORT = 5000;
+
+app.get("/", (req, res) => {
+    res.send("SecureAuth backend is running");
+})
+
+
+app.post("/register", async (req, res) => {
+  const { username, email, password } = req.body;
+
+  if(!username || !email || !password){
+    return res.status(400).json({
+      message: "All field are required"
+    });
+  }
+
+  if(password.length < 8){
+    return res.status(400).json({
+      message: "Password must be at least 8 characters"
+    });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const sql = `
+    INSERT INTO users (username, email, password_hash)
+    VALUES (?, ?, ?)
+  `;
+
+  db.query(sql, [username, email, hashedPassword], (err, result) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({
+        message: "Registration failed"
+      });
+    }
+
+    res.status(201).json({
+      message: "User registered successfully"
+    });
+  });
+});
+
+app.post("/login", loginLimiter, (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({
+      message: "Email and password are required"
+    });
+  }
+
+  const sql = "SELECT * FROM users WHERE email = ?";
+
+  db.query(sql, [email], async (err, results) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({
+        message: "Login failed"
+      });
+    }
+
+    if (results.length === 0) {
+      return res.status(401).json({
+        message: "Invalid email or password"
+      });
+    }
+
+    const user = results[0];
+
+    const passwordMatch = await bcrypt.compare(
+      password,
+      user.password_hash
+    );
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        message: "Invalid email or password"
+      });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 1000
+    });
+
+    res.json({
+      message: "Login successful"
+    });
+  });
+});
+
+
+app.get("/dashboard", (req, res) => {
+  const token = req.cookies.token;
+
+  if (!token) {
+    return res.status(401).json({
+      message: "Access denied. Please login."
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    res.json({
+      message: "Welcome to SecureAuth Dashboard",
+      user: decoded
+    });
+  } catch (error) {
+    return res.status(401).json({
+      message: "Invalid or expired token"
+    });
+  }
+});
+
+
+app.post("/logout", (req, res) => {
+  res.clearCookie("token");
+
+  res.json({
+    message: "Logged out successfully"
+  });
+});
+
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+})
