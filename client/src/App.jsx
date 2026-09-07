@@ -14,6 +14,8 @@ function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
   const getPasswordStrength = () => {
     if (password.length === 0) {
       return "";
@@ -37,7 +39,7 @@ function App() {
 
   const fetchDashboard = async () => {
     try {
-      const response = await fetch("http://localhost:5000/dashboard", {
+      const response = await fetch(`${API_URL}/dashboard`, {
         credentials: "include"
       });
 
@@ -76,8 +78,8 @@ function App() {
     setIsLoading(true);
 
     const endpoint = isLogin
-      ? "http://localhost:5000/login"
-      : "http://localhost:5000/register";
+      ? `${API_URL}/login`
+      : `${API_URL}/register`;
 
     const data = isLogin
       ? { email, password }
@@ -118,7 +120,7 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      const response = await fetch("http://localhost:5000/logout", {
+      const response = await fetch(`${API_URL}/logout`, {
         method: "POST",
         credentials: "include"
       });
